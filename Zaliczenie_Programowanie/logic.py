@@ -1,0 +1,146 @@
+# logic.py
+import streamlit as st
+import pandas as pd
+import sqlite3
+import plotly.express as px
+from config import COLOR_MAP, CATEGORIES, DESCRIPTIONS, DEFAULT_PERCENTS
+
+def render_budget_table(income):
+    """
+    Wyświetla interaktywną tabelę do edycji budżetu.
+    Zwraca DataFrame z danymi jeśli walidacja przejdzie pomyślnie.
+    """
+    st.subheader("📋 Edytuj swój budżet")
+    st.caption("Zmieniaj procenty poniżej (możesz używać ułamków). Suma musi wynosić 100%.")
+
+    h1, h2, h3 = st.columns([3, 1.5, 2])
+    h1.markdown("**Słoik (Kategoria)**")
+    h2.markdown("**Procent %**")
+    h3.markdown("**Wyliczona Kwota**")
+
+    st.divider()
+
+    current_percents = []
+
+    for i, category in enumerate(CATEGORIES):
+        c1, c2, c3 = st.columns([3, 1.5, 2])
+
+        color = COLOR_MAP[category]
+        display_name = category.replace("<br>", " ")
+
+        with c1:
+            st.markdown(
+                f"<div style='color: {color}; font-weight: bold; padding-top: 10px;'>{display_name}</div>",
+                unsafe_allow_html=True
+            )
+            st.caption(DESCRIPTIONS[i])
+
+        with c2:
+            val = st.number_input(
+                label="%",
+                min_value=0.0,
+                max_value=100.0,
+                value=float(DEFAULT_PERCENTS[i]),
+                step=0.01,
+                format="%.2f",
+                key=f"input_{i}",
+                label_visibility="collapsed"
+            )
+            current_percents.append(val)
+
+        with c3:
+            calc_amount = (val / 100) * income
+            st.markdown(
+                f"<div style='font-weight: bold; padding-top: 10px; text-align: right;'>{calc_amount:.2f} zł</div>",
+                unsafe_allow_html=True
+            )
+
+        st.markdown("<hr style='margin: 5px 0'>", unsafe_allow_html=True)
+
+    # Walidacja sumy
+    total_percent = round(sum(current_percents), 2)
+
+    if total_percent > 100.00:
+        over = round(total_percent - 100.00, 2)
+        st.error(f"⛔ **Przekroczono limit!** Suma: {total_percent}%. Usuń {over}%.")
+        st.stop() # Zatrzymuje dalsze wykonywanie kodu
+    elif total_percent < 100.00:
+        left = round(100.00 - total_percent, 2)
+        st.warning(f"⚠️ Do rozdania: **{left}%**. (Suma: {total_percent}%)")
+    else:
+        st.success("✅ Budżet idealny (100.00%).")
+
+    # Tworzenie DataFrame
+    raw_data = {
+        "Słoik": CATEGORIES,
+        "Procent": current_percents,
+        "Kwota": [(p/100)*income for p in current_percents],
+        "Opis": DESCRIPTIONS
+    }
+    df_raw = pd.DataFrame(raw_data)
+
+    total_alloc = df_raw["Kwota"].sum()
+    st.info(f"Łącznie rozdysponowano: **{total_alloc:.2f} zł**")
+
+    return df_raw
+
+def render_chart_with_sql(df_raw, income):
+    """
+    Przetwarza dane przez SQLite i rysuje wykres kołowy.
+    """
+    st.subheader("📊 Wizualizacja ")
+
+    # SQL Logic
+    conn = sqlite3.connect(':memory:')
+    df_raw.to_sql('budzet_domowy', conn, index=False, if_exists='replace')
+
+    sql_query = """
+        SELECT 
+            "Słoik" as Kategoria, 
+            Kwota, 
+            Opis 
+        FROM 
+            budzet_domowy
+        WHERE 
+            Kwota > 0
+    """
+    df_sql = pd.read_sql(sql_query, conn)
+    conn.close()
+
+    # Logika wielkości czcionek
+    font_sizes = []
+    font_colors = []
+
+    for kategoria in df_sql["Kategoria"]:
+        if "FFA" in kategoria or "LTSS" in kategoria:
+            font_sizes.append(40)
+        else:
+            font_sizes.append(20)
+        font_colors.append("white")
+
+    # Rysowanie wykresu
+    fig = px.pie(
+        df_sql,
+        values='Kwota',
+        names='Kategoria',
+        hole=0.45,
+        title=f'Podział: {income:.2f} zł',
+        color='Kategoria',
+        color_discrete_map=COLOR_MAP,
+        hover_data=['Opis']
+    )
+
+    fig.update_traces(
+        textposition='inside',
+        textinfo='percent+label',
+        insidetextorientation='horizontal',
+        textfont_size=font_sizes,
+        textfont_color=font_colors
+    )
+
+    fig.update_layout(
+        showlegend=False,
+        margin=dict(t=50, b=0, l=0, r=0)
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
