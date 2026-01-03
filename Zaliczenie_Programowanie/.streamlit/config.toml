@@ -2,11 +2,3 @@
 base="dark"
 primaryColor="#4b4bff"
 backgroundColor="#0d1116"
-font = "sans serif"
-
-[client]
-toolbarMode = "viewer"     # Ukrywa opcje deweloperskie dla użytkowników
-showErrorDetails = false   # Ukrywa szczegóły błędów (bardziej profesjonalne)
-
-[server]
-runOnSave = true           # Automatyczne odświeżanie przy pracy lokalnej
